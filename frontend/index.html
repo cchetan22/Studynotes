@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NOTES// AI Study Summarizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060A12;
+    --bg-2: #0A0F1C;
+    --panel: rgba(18, 26, 42, 0.55);
+    --line: rgba(122, 162, 255, 0.16);
+    --line-bright: rgba(122, 162, 255, 0.4);
+    --cyan: #4CE0D2;
+    --violet: #8B7CFF;
+    --magenta: #FF5FA2;
+    --text: #E9EEFC;
+    --text-dim: #8792AC;
+    --danger: #FF6B6B;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+  }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  #bgCanvas {
+    position: fixed; inset: 0; z-index: 0;
+    background:
+      radial-gradient(ellipse 60% 40% at 20% 0%, rgba(139,124,255,0.16), transparent 60%),
+      radial-gradient(ellipse 50% 35% at 90% 20%, rgba(76,224,210,0.12), transparent 60%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+  }
+  .grid-overlay {
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(rgba(122,162,255,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(122,162,255,0.05) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black, transparent 75%);
+    animation: gridDrift 40s linear infinite;
+  }
+  @keyframes gridDrift { from { background-position: 0 0; } to { background-position: 42px 42px; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+  .wrap { position: relative; z-index: 1; max-width: 820px; margin: 0 auto; padding: 0 1.5rem 5rem; }
+
+  header.masthead { padding: 3.2rem 0 2rem; animation: fadeUp 0.7s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-size: 0.72rem; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--cyan); padding: 0.35rem 0.8rem;
+    border: 1px solid var(--line-bright); border-radius: 999px;
+    background: rgba(76,224,210,0.06);
+  }
+  .badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--cyan); box-shadow: 0 0 8px var(--cyan);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
+
+  header.masthead h1 {
+    margin: 0.9rem 0 0.6rem;
+    font-size: clamp(2rem, 5vw, 2.8rem);
+    font-weight: 700; letter-spacing: -0.02em; line-height: 1.05;
+    background: linear-gradient(120deg, #fff 20%, var(--cyan) 55%, var(--violet) 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header.masthead p { margin: 0; color: var(--text-dim); max-width: 56ch; font-size: 1rem; }
+
+  .panel {
+    background: var(--panel);
+    backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1.7rem 1.8rem; margin-bottom: 1.4rem;
+    position: relative; overflow: hidden;
+    opacity: 0; transform: translateY(18px);
+    animation: fadeUp 0.6s cubic-bezier(.2,.8,.2,1) forwards;
+  }
+  .panel::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+    opacity: 0.6;
+  }
+  .panel:hover { border-color: var(--line-bright); box-shadow: 0 0 0 1px rgba(76,224,210,0.08), 0 20px 60px -30px rgba(76,224,210,0.3); }
+
+  .panel h2 {
+    margin: 0 0 1.1rem; font-size: 1rem; font-weight: 600;
+    display: flex; align-items: center; gap: 0.7rem;
+  }
+  .panel h2 .idx {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+    color: var(--bg); background: var(--cyan);
+    width: 24px; height: 24px; display: inline-flex;
+    align-items: center; justify-content: center; border-radius: 6px; font-weight: 700;
+  }
+
+  label {
+    display: block; font-size: 0.72rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--text-dim); margin: 1.1rem 0 0.4rem;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  textarea, input[type=text], input[type=password], input[type=number] {
+    width: 100%; font-family: 'Space Grotesk', sans-serif; font-size: 0.95rem;
+    padding: 0.75rem 0.9rem; border: 1px solid var(--line); border-radius: 10px;
+    background: rgba(6,10,18,0.6); color: var(--text); resize: vertical;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  textarea::placeholder, input::placeholder { color: #4B5570; }
+  textarea:focus, input:focus {
+    outline: none; border-color: var(--cyan);
+    box-shadow: 0 0 0 3px rgba(76,224,210,0.14);
+  }
+
+  input[type=number] { max-width: 100px; }
+
+  button {
+    font-family: 'Space Grotesk', sans-serif; cursor: pointer; border-radius: 10px;
+    border: 1px solid var(--line-bright); padding: 0.6rem 1.2rem;
+    font-size: 0.88rem; font-weight: 600; background: transparent; color: var(--text);
+    transition: all 0.2s cubic-bezier(.2,.8,.2,1);
+  }
+  button.primary {
+    background: linear-gradient(135deg, var(--cyan), var(--violet));
+    border: none; color: #04070D; padding: 0.75rem 1.6rem; font-size: 0.92rem;
+  }
+  button.primary:hover:not(:disabled) { box-shadow: 0 0 30px -4px rgba(139,124,255,0.6); transform: translateY(-2px); }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  .row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 1.6rem; }
+
+  #status {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--cyan);
+    min-height: 1.2rem; display: flex; align-items: center; gap: 0.5rem;
+  }
+  #status.error { color: var(--danger); }
+  .spinner {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid rgba(76,224,210,0.25); border-top-color: var(--cyan);
+    animation: spin 0.7s linear infinite; display: none;
+  }
+  .spinner.active { display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #results { margin-top: 2.2rem; }
+
+  .summary-card {
+    background: var(--panel); backdrop-filter: blur(18px);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 1.6rem 1.8rem; margin-bottom: 1.2rem;
+    opacity: 0; transform: translateY(24px);
+    animation: cardIn 0.5s cubic-bezier(.2,.8,.2,1) forwards;
+  }
+  @keyframes cardIn { to { opacity: 1; transform: translateY(0); } }
+  .summary-card h3 {
+    margin: 0 0 0.7rem; font-size: 0.85rem; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--cyan);
+  }
+  .summary-card p { margin: 0; line-height: 1.6; font-size: 0.98rem; }
+
+  .flashcard {
+    background: var(--panel); backdrop-filter: blur(18px);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.2rem 1.4rem; margin-bottom: 0.9rem;
+    cursor: pointer; user-select: none;
+    opacity: 0; transform: translateY(20px) scale(0.98);
+    animation: cardIn 0.5s cubic-bezier(.2,.8,.2,1) forwards;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+    position: relative;
+  }
+  .flashcard:hover { border-color: var(--line-bright); transform: translateY(-2px); }
+  .flashcard .tag {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.68rem;
+    color: var(--violet); letter-spacing: 0.08em; margin-bottom: 0.4rem; display: block;
+  }
+  .flashcard .q { font-size: 0.98rem; font-weight: 600; }
+  .flashcard .a {
+    margin-top: 0.7rem; padding-top: 0.7rem;
+    border-top: 1px dashed var(--line);
+    font-size: 0.92rem; color: var(--text-dim);
+    display: none;
+  }
+  .flashcard.open .a { display: block; color: var(--text); }
+  .flashcard .hint {
+    font-size: 0.68rem; color: var(--text-dim); margin-top: 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .skeleton-card {
+    height: 90px; border-radius: 12px;
+    background: linear-gradient(100deg, rgba(255,255,255,0.02) 30%, rgba(76,224,210,0.06) 50%, rgba(255,255,255,0.02) 70%);
+    background-size: 200% 100%; animation: shimmer 1.6s ease-in-out infinite;
+    border: 1px solid var(--line); margin-bottom: 0.9rem;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  footer { text-align: center; color: var(--text-dim); font-size: 0.76rem; padding: 2rem 0 0; position: relative; z-index: 1; }
+</style>
+</head>
+<body>
+
+<div id="bgCanvas"></div>
+<div class="grid-overlay"></div>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="badge"><span class="dot"></span>SYSTEM ONLINE — AI SUMMARIZER</span>
+    <h1>Study Notes<br>Summarizer</h1>
+    <p>Paste any notes, textbook chapter, or article. Get a concise summary and auto-generated flashcards to quiz yourself with.</p>
+  </header>
+
+  <section class="panel">
+    <h2><span class="idx">01</span> Your notes</h2>
+    <label for="notes">Notes / text to summarize</label>
+    <textarea id="notes" rows="10" placeholder="Paste your notes here..."></textarea>
+
+    <label for="numCards">Number of flashcards</label>
+    <input type="number" id="numCards" value="5" min="1" max="15">
+  </section>
+
+  <section class="panel">
+    <h2><span class="idx">02</span> OpenAI API key</h2>
+    <label for="apiKey">Key (kept in this browser tab only — never stored or logged)</label>
+    <input type="password" id="apiKey" placeholder="sk-...">
+  </section>
+
+  <div class="row">
+    <button type="button" class="primary" id="runBtn">Summarize &amp; generate flashcards</button>
+    <div id="status" class="mono"><span class="spinner" id="spinner"></span><span id="statusText"></span></div>
+  </div>
+
+  <div id="results"></div>
+
+</div>
+
+<footer>Runs against your own backend · No data leaves your machine except the API call to OpenAI</footer>
+
+<script>
+function setStatus(msg, isError = false, loading = false) {
+  document.getElementById("statusText").textContent = msg;
+  document.getElementById("status").className = "mono" + (isError ? " error" : "");
+  document.getElementById("spinner").className = "spinner" + (loading ? " active" : "");
+}
+
+function showSkeletons(count) {
+  const container = document.getElementById("results");
+  container.innerHTML = "";
+  for (let i = 0; i < count; i++) {
+    const sk = document.createElement("div");
+    sk.className = "skeleton-card";
+    sk.style.animationDelay = `${i * 0.08}s`;
+    container.appendChild(sk);
+  }
+}
+
+async function runSummarize() {
+  const notes = document.getElementById("notes").value.trim();
+  const apiKey = document.getElementById("apiKey").value.trim();
+  const numCards = parseInt(document.getElementById("numCards").value) || 5;
+
+  if (!notes) { setStatus("Paste some notes first.", true); return; }
+  if (!apiKey) { setStatus("Add your OpenAI API key.", true); return; }
+
+  const runBtn = document.getElementById("runBtn");
+  runBtn.disabled = true;
+  setStatus("Summarizing and generating flashcards...", false, true);
+  showSkeletons(3);
+
+  try {
+    const res = await fetch(`${window.location.origin}/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes: notes, num_flashcards: numCards, api_key: apiKey })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      document.getElementById("results").innerHTML = "";
+      setStatus(`Error: ${data.detail || "request failed"}`, true);
+      runBtn.disabled = false;
+      return;
+    }
+
+    renderResults(data);
+    setStatus(`Done — ${data.flashcards.length} flashcards generated.`);
+  } catch (err) {
+    document.getElementById("results").innerHTML = "";
+    setStatus(`Network error: ${err.message}. Is the backend running?`, true);
+  } finally {
+    runBtn.disabled = false;
+  }
+}
+
+function renderResults(data) {
+  const container = document.getElementById("results");
+  container.innerHTML = "";
+
+  const summaryCard = document.createElement("div");
+  summaryCard.className = "summary-card";
+  summaryCard.innerHTML = `<h3>Summary</h3><p>${data.summary}</p>`;
+  container.appendChild(summaryCard);
+
+  data.flashcards.forEach((card, i) => {
+    const el = document.createElement("div");
+    el.className = "flashcard";
+    el.style.animationDelay = `${0.1 + i * 0.08}s`;
+    el.innerHTML = `
+      <span class="tag mono">CARD_${String(i + 1).padStart(2, '0')}</span>
+      <div class="q">${card.question}</div>
+      <div class="a">${card.answer}</div>
+      <div class="hint">click to ${el.className.includes('open') ? 'hide' : 'reveal'} answer</div>
+    `;
+    el.addEventListener("click", () => {
+      el.classList.toggle("open");
+      const hint = el.querySelector(".hint");
+      hint.textContent = el.classList.contains("open") ? "click to hide answer" : "click to reveal answer";
+    });
+    container.appendChild(el);
+  });
+}
+
+document.getElementById("runBtn").addEventListener("click", runSummarize);
+</script>
+
+</body>
+</html>
